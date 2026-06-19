@@ -5,6 +5,7 @@ import net.fabricmc.api.ModInitializer;
 public class ExampleMod implements ModInitializer {
     @Override
     public void onInitialize() {
-        System.out.println("Auto Criticals Mod Initialized!");
+     System.out.println("Auto Criticals Mod Initialized!");
+    // build
     }
 }
