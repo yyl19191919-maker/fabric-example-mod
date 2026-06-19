@@ -1,4 +1,4 @@
-package net.fabricmc.example.mixin;
+package com.example.mixin;
 
 import net.minecraft.client.network.ClientPlayerEntity;
 import net.minecraft.entity.Entity;
