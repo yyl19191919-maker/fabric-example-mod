@@ -18,185 +18,88 @@ jobs:
           distribution: 'temurin'
           java-version: '21'
 
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
-
-      - name: Extract XynisClient-Complete.zip
+      - name: Find and Extract ZIP
         run: |
-          echo "=== Extracting ZIP ==="
+          echo "=== Searching for ZIP files ==="
           ls -la
           
+          # البحث عن أي ملف ZIP
+          ZIP_FILE=""
           if [ -f "XynisClient-Complete.zip" ]; then
-            unzip -o XynisClient-Complete.zip -d /tmp/extract
-            echo "=== ZIP Contents ==="
-            find /tmp/extract -type f | head -30
-            
-            # إنشاء المجلدات
-            mkdir -p src/main/java/us
-            mkdir -p src/main/resources
-            
-            # نقل الملفات
-            if [ -d "/tmp/extract/us/whitedev" ]; then
-              cp -r /tmp/extract/us/whitedev src/main/java/us/
-            elif [ -d "/tmp/extract/src/us/whitedev" ]; then
-              cp -r /tmp/extract/src/us/whitedev src/main/java/us/
-            elif [ -d "/tmp/extract/whitedev" ]; then
-              cp -r /tmp/extract/whitedev src/main/java/us/
-            fi
-            
-            # نقل META-INF/jars (dependencies)
-            if [ -d "/tmp/extract/META-INF/jars" ]; then
-              mkdir -p libs
-              cp -r /tmp/extract/META-INF/jars/* libs/
-            fi
-            
+            ZIP_FILE="XynisClient-Complete.zip"
+            echo "Found: XynisClient-Complete.zip"
+          elif [ -f "src.zip" ]; then
+            ZIP_FILE="src.zip"
+            echo "Found: src.zip"
+          elif ls *.zip 1>/dev/null 2>&1; then
+            ZIP_FILE=$(ls *.zip | head -1)
+            echo "Found: $ZIP_FILE"
           else
-            echo "ERROR: XynisClient-Complete.zip not found!"
+            echo "ERROR: No ZIP file found in repository!"
+            echo "Please upload XynisClient-Complete.zip to this repository"
             exit 1
           fi
           
-          echo "=== Checking .class files ==="
+          echo "=== Extracting $ZIP_FILE ==="
+          unzip -o "$ZIP_FILE" -d /tmp/extract
+          
+          echo "=== Extracted Contents ==="
+          find /tmp/extract -type f | head -30
+          
+          # إنشاء المجلدات
+          mkdir -p src/main/java/us
+          mkdir -p src/main/resources
+          
+          # نقل الملفات حسب البنية
+          if [ -d "/tmp/extract/us/whitedev" ]; then
+            echo "Found: /us/whitedev structure"
+            cp -r /tmp/extract/us/whitedev src/main/java/us/
+          elif [ -d "/tmp/extract/src/us/whitedev" ]; then
+            echo "Found: /src/us/whitedev structure"
+            cp -r /tmp/extract/src/us/whitedev src/main/java/us/
+          elif [ -d "/tmp/extract/whitedev" ]; then
+            echo "Found: /whitedev structure"
+            cp -r /tmp/extract/whitedev src/main/java/us/
+          else
+            echo "ERROR: Cannot find whitedev directory in ZIP!"
+            echo "ZIP structure:"
+            find /tmp/extract -type d | head -20
+            exit 1
+          fi
+          
+          # نقل dependencies
+          if [ -d "/tmp/extract/META-INF/jars" ]; then
+            echo "Found META-INF/jars"
+            mkdir -p libs
+            cp -r /tmp/extract/META-INF/jars/* libs/
+          fi
+          
+          echo "=== .class files count ==="
           find src -name "*.class" | wc -l
 
-      - name: Create build files
-        run: |
-          cat > settings.gradle <<'EOF'
-          pluginManagement {
-              repositories {
-                  maven { url = 'https://maven.fabricmc.net/' }
-                  mavenCentral()
-                  gradlePluginPortal()
-              }
-          }
-          rootProject.name = 'xynis-client'
-          EOF
-
-          cat > build.gradle <<'EOF'
-          plugins {
-              id 'java'
-          }
-          
-          group = 'us.whitedev'
-          version = '6.4-enhanced'
-          
-          repositories {
-              mavenCentral()
-          }
-          
-          // نستخدم .class files مباشرة
-          sourceSets {
-              main {
-                  java {
-                      srcDirs = ['src/main/java']
-                  }
-                  resources {
-                      srcDirs = ['src/main/resources']
-                  }
-              }
-          }
-          
-          // تعطيل compileJava
-          tasks.withType(JavaCompile) {
-              enabled = false
-          }
-          
-          // مهمة لنسخ الملفات
-          task prepareFiles {
-              doLast {
-                  copy {
-                      from 'src/main/java'
-                      into 'build/classes/java/main'
-                      include '**/*.class'
-                  }
-                  copy {
-                      from 'src/main/resources'
-                      into 'build/resources/main'
-                  }
-              }
-          }
-          
-          // إنشاء JAR
-          task buildJar(type: Jar) {
-              dependsOn prepareFiles
-              archiveFileName = 'xynis-client-6.4-enhanced-1.20.2.jar'
-              destinationDirectory = file('build/libs')
-              
-              from('build/classes/java/main') {
-                  include '**/*.class'
-              }
-              from('build/resources/main')
-              
-              // إضافة dependencies من libs/
-              if (file('libs').exists()) {
-                  from('libs') {
-                      include '*.jar'
-                      into 'META-INF/jars'
-                  }
-              }
-              
-              manifest {
-                  attributes(
-                      'Main-Class': 'us.whitedev.XynisClient',
-                      'Implementation-Version': '6.4-enhanced'
-                  )
-              }
-          }
-          
-          // task build يستدعي buildJar
-          tasks.named('build') {
-              dependsOn buildJar
-          }
-          
-          java {
-              sourceCompatibility = JavaVersion.VERSION_21
-              targetCompatibility = JavaVersion.VERSION_21
-          }
-          EOF
-
-          cat > gradle.properties <<'EOF'
-          org.gradle.jvmargs=-Xmx3G
-          EOF
-
-      - name: Build JAR
+      - name: Create JAR manually
         run: |
           echo "=== Building JAR for Minecraft 1.20.2 ==="
           
-          # إنشاء المجلدات
-          mkdir -p build/classes/java/main/us
-          mkdir -p build/resources/main
           mkdir -p build/libs
           
-          # نسخ .class files
-          if [ -d "src/main/java/us/whitedev" ]; then
-            echo "Copying .class files..."
-            cp -r src/main/java/us/whitedev build/classes/java/main/us/
-          fi
-          
-          # نسخ resources
-          if [ -d "src/main/resources" ]; then
-            cp -r src/main/resources/* build/resources/main/ 2>/dev/null || true
-          fi
-          
-          # نسخ dependencies
-          if [ -d "libs" ]; then
-            mkdir -p build/libs_temp/META-INF/jars
-            cp libs/*.jar build/libs_temp/META-INF/jars/ 2>/dev/null || true
-          fi
+          # إنشاء manifest
+          cat > manifest.mf <<'EOF'
+          Manifest-Version: 1.0
+          Main-Class: us.whitedev.XynisClient
+          Implementation-Version: 6.4-enhanced
+          EOF
           
           # إنشاء JAR
-          echo "Creating JAR..."
-          cd build
-          jar cfm libs/xynis-client-6.4-enhanced-1.20.2.jar ../manifest.mf \
-            -C classes/java/main . \
-            -C resources/main . \
-            -C libs_temp .
-          cd ..
+          cd /tmp/extract
+          jar cfm $GITHUB_WORKSPACE/build/libs/xynis-client-6.4-enhanced-1.20.2.jar $GITHUB_WORKSPACE/manifest.mf .
+          cd $GITHUB_WORKSPACE
           
           echo "=== JAR Created ==="
           ls -lh build/libs/
           
-          # التحقق من محتوى JAR
-          echo "=== JAR Contents ==="
+          # التحقق
+          echo "=== JAR Contents (first 20) ==="
           jar tf build/libs/xynis-client-6.4-enhanced-1.20.2.jar | head -20
 
       - name: Upload result
@@ -204,13 +107,11 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: xynis-client-1.20.2
-          path: |
-            build/libs/*.jar
+          path: build/libs/*.jar
 
-      - name: Show build info
+      - name: Build Info
         run: |
           echo "=== Build Info ==="
-          echo "Minecraft Version: 1.20.2"
-          echo "Java Version: 21"
-          echo "Client Version: 6.4-enhanced"
-          echo "Build Status: SUCCESS"
+          echo "Minecraft: 1.20.2"
+          echo "Java: 21"
+          echo "Status: SUCCESS ✅"
